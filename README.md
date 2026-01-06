@@ -56,7 +56,6 @@ Additional variables may be required depending on configuration.
 
 ## Run Locally (Python)
 
-```bash
 python -m venv venv
 .\venv\Scripts\activate
 pip install -r requirements.txt
@@ -110,7 +109,7 @@ Ensure role hierarchy is configured correctly or verification will fail.
 
 ## Security Notes
 
-- *Never commit* `.env` files or credentials
+- **Never commit** `.env` files or credentials
 - Rotate tokens immediately if exposed
 - Limit bot permissions to only what is required
 - Audit role assignment behavior carefully
@@ -119,7 +118,7 @@ Ensure role hierarchy is configured correctly or verification will fail.
 
 ## Attribution
 
-This project is derived from *VerificationBot*, originally developed for the UVic Engineering & Computer Science Discord community and later contributors.
+This project is derived from **VerificationBot**, originally developed for the UVic Engineering & Computer Science Discord community and later contributors.
 
 The codebase has been modified and extended for UCF-specific use cases, configuration, and deployment.
 
@@ -129,7 +128,7 @@ Original project and contributors are credited in accordance with the license.
 
 ## License
 
-This project is licensed under the *GNU General Public License v3.0 (GPL-3.0)S*.  
+This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)S**.  
 See the `LICENSE` file for full terms.
 
 ---
