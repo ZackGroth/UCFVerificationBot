@@ -1,7 +1,8 @@
-import os.path as osp
 import os
+import os.path as osp
 import random
 import time
+import asyncio
 
 import discord
 from discord.ext import commands
@@ -10,106 +11,108 @@ from util.data.hashing import Hashing
 
 print("Starting...")
 
-current_dir = osp.dirname(__file__)  # grab the current system directory on an os-independent level
-data_path = "data"  # folder name
+# --- Load .env if present ---
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    print("Loaded .env")
+except Exception as e:
+    print(f"[WARN] dotenv not loaded (this is OK if you set env vars another way): {e}")
 
-# The extensions ("cogs") to load
+current_dir = osp.dirname(__file__)
+data_path = "data"
+
 extensions = ["background", "errors", "misc", "reactor", "utility", "verification"]
 
-# Load new intents system. This is required for the new reactors functionality.
 intents = discord.Intents.default()
 intents.guilds = True
 intents.members = True
 intents.messages = True
 intents.reactions = True
 
-# Start the bot functions.
 do_run = True
 
-# Set up variables
 bot_token = None
 used_emails = None
 bot_key = None
 hash_key = None
 
-# Start config loading from environment variables.
 try:
-	print("Loading config...")
+    print("Loading config...")
 
-	bot_token = os.environ["token"]
-	bot_key = os.environ["key"]
-	used_emails = os.environ["used_emails"]
-	hash_key = os.environ["hash_key"]
+    bot_token = os.environ["token"]
+    bot_key = os.environ["key"]
+    used_emails = os.environ["used_emails"]
+    hash_key = os.environ["hash_key"]
 
-	do_run = True
+    do_run = True
 except KeyError as e:
-	print(f"Config error.\n\tKey Not Loaded: {e}")
-	do_run = False
+    print(f"Config error.\n\tKey Not Loaded: {e}")
+    do_run = False
 
-# Seed the random number generator from the system time. (This used to be the bot token. I'm not sure why.)
+# Seed RNG
 random.seed(int(time.time()))
 
-# From the used_emails filename, load the data from the data folder. This can be commented out if not using a data folder.
-used_emails = osp.join(current_dir, data_path, used_emails)
+# Only build paths if config loaded successfully
+if do_run:
+    used_emails = osp.join(current_dir, data_path, used_emails)
 
 
-# noinspection PyUnusedLocal
 def prefix(bot, message):
-	pfx = bot_key
-
-	# If prefix has a space after it, try using it instead
-	# 	Ex: `! email` is the same as `!email`
-	if str(message.content).startswith(f"{pfx} "):
-		pfx = f"{pfx} "
-
-	return pfx
+    pfx = bot_key
+    if str(message.content).startswith(f"{pfx} "):
+        pfx = f"{pfx} "
+    return pfx
 
 
-# Set up the bot based on the loaded bot prefix and load the intents system.
 bot = commands.Bot(command_prefix=prefix, intents=intents)
 
-# Set up hashing, salt (key) based on defined hash key
-hashing = Hashing(hash_key)
+# Only set hashing if config loaded
+if do_run:
+    hashing = Hashing(hash_key)
+    setattr(bot, "current_dir", current_dir)
+    setattr(bot, "data_path", data_path)
+    setattr(bot, "hashing", hashing)
 
-# Set attributes to bot, used in other modules
-setattr(bot, "current_dir", current_dir)
-setattr(bot, "data_path", data_path)
-setattr(bot, "hashing", hashing)
-
-# By default, there's no help command other than vhelp. This is so that it doesn't interfere with other bots using the same prefix.
-bot.remove_command('help')
+bot.remove_command("help")
 
 
-# Update discord presence when everything is successfully loaded.
 @bot.event
 async def on_ready():
-	await bot.change_presence(activity=discord.Activity(name=f"{bot_key}vhelp for verification help", type=discord.ActivityType.watching))
-	print(f'We have logged in as {bot.user}')
+    await bot.change_presence(
+        activity=discord.Activity(
+            name=f"{bot_key}vhelp for verification help",
+            type=discord.ActivityType.watching,
+        )
+    )
+    print(f"We have logged in as {bot.user}")
 
 
-# Set up per-message checks.
 @bot.event
 async def on_message(message):
-	if message.author == bot.user:
-		return
-	await bot.process_commands(message)
+    if message.author == bot.user:
+        return
+    await bot.process_commands(message)
 
 
-# Loads extensions before running bot
+async def main():
+    count = 0
+    for extension in extensions:
+        try:
+            await bot.load_extension(f"cogs.{extension}")
+            print(f"Cog | Loaded {extension}")
+            count += 1
+        except Exception as error:
+            print(f"{extension} cannot be loaded. \n\t[{error}]")
+
+    print(f"Loaded {count}/{len(extensions)} cogs")
+
+    if do_run:
+        await bot.start(bot_token)
+    else:
+        print("Startup aborted (missing config).")
+
+
 if __name__ == "__main__":
+    asyncio.run(main())
 
-	count = 0
-	for extension in extensions:
-		try:
-			bot.load_extension(f"cogs.{extension}")
-			print(f"Cog | Loaded {extension}")
-			count += 1
-		except Exception as error:
-			print(f"{extension} cannot be loaded. \n\t[{error}]")
-
-	print(f"Loaded {count}/{len(extensions)} cogs")
-
-if do_run:
-	bot.run(bot_token)
-else:
-	print("Startup aborted.")
