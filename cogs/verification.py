@@ -3,538 +3,349 @@ import os.path as osp
 import smtplib
 import ssl
 import random
-import discord
-from discord import app_commands
-from discord.ext import commands
-from email.mime.text import MIMEText
-from email.header import Header
-from datetime import datetime, timedelta, timezone
-import time
 
-# --- ZoneInfo with fallback (cross-platform DST support) ---
-try:
-    from zoneinfo import ZoneInfo
-except ImportError:
-    from zoneinfo import ZoneInfo
+import discord
+from discord.ext import commands
 
 from util.email import is_valid_email
 
-# --- Google Sheets Integration ---
-import gspread
-from google.oauth2.service_account import Credentials
-
 
 class Verification(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
+	def __init__(self, bot):
+		self.bot = bot
 
-        try:
-            # Load environment variables
-            self.used_emails = os.environ["used_emails"]
-            self.warn_emails = os.environ["warn_emails"]
-            self.moderator_email = os.environ["moderator_email"]
-            self.sample_username = os.environ["sample"]
-            self.verify_domain = os.environ["domain"]
-            self.email_from = os.environ["from"]
-            self.email_password = os.environ["password"]
-            self.email_subject = os.environ["subject"]
-            self.email_server = os.environ["server"]
-            self.email_port = int(os.environ["port"])
-            self.role = os.environ["server_role"]
-            self.channel_id = int(os.environ["channel_id"])
-            self.notify_id = int(os.environ["notify_id"])  # Admin log channel
-            self.admin_id = int(os.environ["admin_id"])
-            self.admin_ids = [int(x) for x in os.environ.get("admin_ids", str(self.admin_id)).split(",") if x]
-            self.author_name = os.environ["author_name"]
-            self.webmail_link = os.environ["webmail_link"]
-            self.guild_id = int(os.environ["guild_id"])
-            self.lock_role_id = int(os.environ["lock_role_id"])
+		try:
+			# bot_token = os.environ["token"]
+			self.bot_key = os.environ["key"]
+			self.used_emails = os.environ["used_emails"]
+			self.warn_emails = os.environ["warn_emails"]
+			self.moderator_email = os.environ["moderator_email"]
 
-            # Optional ticket channel
-            try:
-                self.ticket_id = int(os.environ["ticket_id"])
-                self.ticket_loaded = True
-            except KeyError:
-                print("ticket_id not loaded. Defaulting to admin_id for reverification messages.")
-                self.ticket_loaded = False
+			self.sample_username = os.environ["sample"]
+			self.verify_domain = os.environ["domain"]
+			self.email_from = os.environ["from"]
+			self.email_password = os.environ["password"]
+			self.email_subject = os.environ["subject"]
+			self.email_server = os.environ["server"]
+			self.email_port = os.environ["port"]
 
-            # Resolve file paths
-            self.used_emails = osp.join(self.bot.current_dir, self.bot.data_path, self.used_emails)
-            self.warn_emails = osp.join(self.bot.current_dir, self.bot.data_path, self.warn_emails)
+			self.role = os.environ["server_role"]
+			self.channel_id = os.environ["channel_id"]
+			self.notify_id = os.environ["notify_id"]
+			self.admin_id = os.environ["admin_id"]
+			self.author_name = os.environ["author_name"]
+			self.webmail_link = os.environ["webmail_link"]
 
-        except KeyError as e:
-            print(f"Config error.\n\tKey Not Loaded: {e}")
+			# Setup for automatic swap between admin and ticket channel pings during reverification.
+			try:
+				self.ticket_id = os.environ["ticket_id"]
+				self.ticket_id = int(self.ticket_id)
+				self.ticket_loaded = True
+			except KeyError:
+				print("ticket_id not loaded. Defaulting to admin_id for reverification messages.")
+				self.ticket_loaded = False
 
-        # Runtime state
-        self.token_list = {}
-        self.email_list = {}
-        self.email_attempts = {}
-        self.verify_attempts = {}
+			self.channel_id = int(self.channel_id)
+			self.notify_id = int(self.notify_id)
+			self.admin_id = int(self.admin_id)
+			self.email_port = int(self.email_port)
 
-        # Ensure data folder exists
-        data_dir = osp.join(self.bot.current_dir, self.bot.data_path)
-        if not os.path.exists(data_dir):
-            os.makedirs(data_dir)
+			self.used_emails = osp.join(self.bot.current_dir, self.bot.data_path, self.used_emails)
+			self.warn_emails = osp.join(self.bot.current_dir, self.bot.data_path, self.warn_emails)
 
-        # --- Google Sheets Setup ---
-        try:
-            scope = [
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive"
-            ]
-            creds = Credentials.from_service_account_file("service_account.json", scopes=scope)
-            gc = gspread.authorize(creds)
-            self.sheet = gc.open_by_key("1ZQkRDQoDov65On7ppg9hTbWVtOQWu2EYJBdsnMafd0g").sheet1
-            print("Google Sheets connected successfully.")
-        except Exception as e:
-            print(f"[WARN] Google Sheets setup failed: {e}")
-            self.sheet = None
+		except KeyError as e:
+			print(f"Config error.\n\tKey Not Loaded: {e}. Please set up an environment variable for this key and restart.")
 
-    # ----------------------------------------------------------------------
-    # /help (ephemeral)
-    # ----------------------------------------------------------------------
-    @app_commands.command(name="help", description="Instructions on how to verify your UCF account.")
-    async def slash_help(self, interaction: discord.Interaction):
-        verify_channel = interaction.guild.get_channel(self.channel_id)
-        msg = (
-            f"To verify your UCF account:\n"
-            f"1️⃣ Run `/email {self.sample_username}@{self.verify_domain}` in {verify_channel.mention}.\n"
-            f"2️⃣ Check your inbox (and junk folder) for a 4-digit token.\n"
-            f"3️⃣ Run `/verify ####` in {verify_channel.mention} to complete verification.\n\n"
-            f"Access webmail: {self.webmail_link}"
-        )
-        await interaction.response.send_message(msg, ephemeral=True)
+		# Create empty lists for currently active tokens, emails, and attempt rejection.
+		self.token_list = {}
+		self.email_list = {}
+		self.email_attempts = {}
+		self.verify_attempts = {}
 
-    # ----------------------------------------------------------------------
-    # /email
-    # ----------------------------------------------------------------------
-    @app_commands.command(name="email", description="Send a verification email to your UCF address.")
-    @app_commands.describe(email="Your @ucf.edu email address")
-    async def slash_email(self, interaction: discord.Interaction, email: str):
-        await interaction.response.defer(ephemeral=True)
+		# Check if data folder exists ahead of time, and create it if it doesn't.
+		data_dir = osp.join(self.bot.current_dir, self.bot.data_path)
+		if not os.path.exists(data_dir):
+			os.makedirs(data_dir)
 
-        # Allow usage in the verification channel or any thread inside it
-        if not (
-            interaction.channel.id == self.channel_id or
-            (isinstance(interaction.channel, discord.Thread) and 
-             interaction.channel.parent_id == self.channel_id)
-        ):
-            # Debug print (you can remove after testing)
-            print(f"[DEBUG] Blocked command: Channel={interaction.channel.id}, Parent={getattr(interaction.channel, 'parent_id', None)}, Expected={self.channel_id}")
-            return await interaction.followup.send(
-                f"Please use this command in the verification channel (<#{self.channel_id}>) or one of its threads.",
-                ephemeral=True
-            )
+	# Instructions on how to verify.
+	# noinspection PyUnusedLocal
+	@commands.command(name="vhelp", aliases=["helpme", "help_me", "verify_help", "Vhelp", "Helpme", "Help_me", "Verify_help"])
+	async def verify_help(self, ctx, *args):
+		"""
+		Help on how to verify.
+		"""
+		verify_email = ctx.guild.get_channel(self.channel_id)
+		# The line below contains the verify_help command text output.
+		await ctx.send(
+			f"To use this bot, please use `{self.bot_key}email {self.sample_username}@{self.verify_domain}` in {verify_email.mention} "
+			f"to receive an email with a **4 digit verification token.** Replace `{self.sample_username}@{self.verify_domain}` with "
+			f"your own email, keeping in mind that the bot only accepts email addresses with `@{self.verify_domain}` at the end. "
+			f"**Wait for an email to be received**. If you don't receive an email after 5 minutes, try using the email "
+			f"command again. **Send the command provided in the email** as a message in the {verify_email.mention} channel "
+			f"to gain access to the rest of the server."
+			f"\n\n**You can access your webmail at {self.webmail_link}**"
+			f"\nMake sure to check your junk email folder for the message in case it gets sent there."
+			f"\n\n**Send messages in the {verify_email.mention} channel to use this "
+			f"bots commands, not in a DM.**")
 
-        print(f"Emailing user {interaction.user.name}, email {email}")
+	# The email command handles all the checks done before an email is sent out alongside the actual email sending.
+	# It's very complicated.
+	@commands.command(name="email", aliases=["mail", "send", "Email", "Mail", "Send"])
+	@commands.guild_only()
+	async def _email(self, ctx, arg):
+		"""
+		Sends an email containing a token to verify the user
+		Parameters
+		------------
+		email: str [Required]
+			The email that the token will be sent to.
+		"""
 
-        # Too many attempts
-        if self.email_attempts.get(interaction.user.id, 0) >= 5:
-            await interaction.followup.send(
-                "You have exceeded the maximum number of verification attempts. Please contact a moderator.",
-                ephemeral=True,
-            )
-            notify = interaction.guild.get_channel(self.notify_id)
-            await notify.send(f"⚠️ {interaction.user.mention} exceeded /email limit.")
-            return
+		if ctx.channel.id == self.channel_id:
+			print(f'Emailing user {ctx.author.name}, email {arg}')  # This gets sent to the console only.
+			await ctx.message.delete()  # delete their email from the channel, to prevent it leaking.
 
-        # Validate email
-        if not is_valid_email(email) or not email.endswith(f"@{self.verify_domain}"):
-            return await interaction.followup.send(
-                f"Invalid email. Must end with `@{self.verify_domain}`.", ephemeral=True
-            )
+			# This is a bit of a hacky way to do an email attempt checking system. If someone tries to repeatedly use the email command, they will be blacklisted from further attempts.
+			maxedOut = False
+			try:
+				if self.email_attempts[ctx.author.id] >= 5:
+					maxedOut = True
+					await ctx.send(
+						f"{ctx.author.mention}, you have exceeded the maximum number of command uses. Please contact a "
+						f"moderator for assistance with verifying if this is in error. Thanks!")
+					sendIn = ctx.guild.get_channel(self.notify_id)
+					await sendIn.send(
+						f"Alert! User {ctx.author.mention} has exceeded the amount of `!email` command uses.")
+					return
+			except:
+				print("")
 
-        if email.lower().startswith(self.sample_username.lower()):
-            return await interaction.followup.send(
-                "Use your real email, not the sample.", ephemeral=True
-            )
+			# Split the email string into parts
+			try:
+				dm = arg.split('@')[1]  # split the string based on the @ symbol
+			except AttributeError:
+				await ctx.send("Error! That is not a valid email!")  # no @ symbol = no email
+				return
 
-        # Warn-list check
-        try:
-            with open(self.warn_emails, "r") as f:
-                if any(email.lower() == line.strip().lower() for line in f):
-                    notify = interaction.guild.get_channel(self.notify_id)
-                    await notify.send(f"⚠️ Warning: email `{email}` used by {interaction.user.mention}")
-        except FileNotFoundError:
-            pass
+			# Email validation
+			if not is_valid_email(arg):
+				return await ctx.send("Error! That is not a valid email!")
 
-        # Used email check
-        if await self.check_emails_file(interaction, email):
-            return
+			# Blacklisted emails
+			blacklist_names = [self.sample_username]  # If any email begins with one of these, it's invalid
+			if any(arg.lower().startswith(name.lower()) for name in blacklist_names):
+				await ctx.send(
+					f"{ctx.author.mention} Use your own email, not the sample one. Please try again with your own email.")
+				return
 
-        # Send email
-        try:
-            await interaction.followup.send("Sending verification email...", ephemeral=True)
-            with smtplib.SMTP(self.email_server, self.email_port) as server:
-                server.ehlo()
-                if self.email_port in (465, 587):
-                    context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-                    server.starttls(context=context)
-                    server.ehlo()
-                server.login(self.email_from, self.email_password)
+			# Checks the warning email file to notify moderators if an email on the list is used. For example, a list of professor emails could be loaded.
+			try:
+				with open(self.warn_emails, 'r') as file:
+					if any(str(arg.lower()) == str(line).strip('\n').lower() for line in file):
+						sendIn = ctx.guild.get_channel(self.notify_id)
+						await sendIn.send(
+							f"Alert! Email on warning list used. Discord ID: {ctx.author.mention}, email `{arg}`.")
+					file.close()
+			except FileNotFoundError:
+				print("Warning list file not found, ignoring.")
 
-                token = random.randint(1000, 9999)
-                self.token_list[interaction.user.id] = str(token)
-                self.email_list[interaction.user.id] = email
-                verify_channel = interaction.guild.get_channel(self.channel_id)
+			# Checks the used emails file to see if the email has been used.
+			if await self.check_emails_file(ctx, arg):
+				return  # message has already been printed, so just exit
 
-                message_text = (
-                    f"Hello! Thank you for joining our Discord server!\n\n"
-                    f"The command to use in #{verify_channel.name} is: /verify {token}\n\n"
-                    f"Copy and paste that command to complete verification.\n\n"
-                    f"If you didn’t request this, contact {self.moderator_email}."
-                )
-                msg = MIMEText(message_text, "plain", "utf-8")
-                msg["Subject"] = Header(self.email_subject, "utf-8")
-                msg["From"] = self.email_from
-                msg["To"] = email
+			# Validation succeeded; send the actual email.
+			if dm == self.verify_domain and not maxedOut:
+				try:
+					await ctx.send("Sending verification email...")
+					with smtplib.SMTP(self.email_server, self.email_port) as server:
+						server.ehlo()
+						if self.email_port == 587 or self.email_port == 465:
+							context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+							server.starttls(context=context)
+							server.ehlo()
+						server.login(self.email_from, self.email_password)
+						token = random.randint(1000, 9999)
+						self.token_list[ctx.author.id] = str(token)
+						self.email_list[ctx.author.id] = arg
+						verify_email = ctx.guild.get_channel(self.channel_id)
 
-                server.sendmail(self.email_from, [email], msg.as_string())
-                server.quit()
+						message_text = f"Hello {self.author_name}! Thank you for joining our Discord server! \n\n" \
+							f"The command to use in the #{verify_email.name} channel is: {self.bot_key}verify {token}\n\n" \
+							f"You can copy and paste that command into the #{verify_email.name} channel to verify. \n\n" \
+							f"This message was sent by a Discord verification bot. \n" \
+							f"If you did not request to verify, please contact {self.moderator_email} to let us know."
+						message = f"Subject: {self.email_subject}\n\n{message_text}"
+						server.sendmail(self.email_from, arg, message)
+						server.quit()
+				except Exception as e:
+					await ctx.send(f"Error! Verification email not sent. Moderators have been informed automatically. Please wait.")
+					sendIn = ctx.guild.get_channel(self.notify_id)
+					await sendIn.send(f"Alert! Bot has encountered an exception. Traceback: {e}")
+					print(f"Alert! Bot has encountered an exception. Traceback: {e}")
+					return
 
-        except Exception as e:
-            print(f"Email error: {e}")
-            notify = interaction.guild.get_channel(self.notify_id)
-            await notify.send(f"⚠️ Email send failed: {e}")
-            return await interaction.followup.send(
-                "Error sending verification email. Moderators have been notified.", ephemeral=True
-            )
+				await ctx.send(f"Verification email sent to {ctx.author.mention}, please use `{self.bot_key}verify ####`, where `####` is the token, to verify.\n"
+							   f"If you can't find the email, please check your 'Junk Email' folder before contacting the moderation team.")
 
-        self.email_attempts[interaction.user.id] = self.email_attempts.get(interaction.user.id, 0) + 1
-        await interaction.followup.send(
-            f"Verification email sent to **{email}**! Use `/verify ####` (the token from your inbox) "
-            f"in <#{self.channel_id}>. Check your junk folder if missing.",
-            ephemeral=True,
-        )
+				if self.email_attempts:
+					if ctx.author.id in self.email_attempts:
+						self.email_attempts[ctx.author.id] += 1
+					else:
+						self.email_attempts[ctx.author.id] = 1
+				else:
+					self.email_attempts[ctx.author.id] = 1
 
-    # ----------------------------------------------------------------------
-    # /verify
-    # ----------------------------------------------------------------------
-    @app_commands.command(name="verify", description="Verify your account using your 4-digit token.")
-    @app_commands.describe(token="The 4-digit token sent to your UCF email.")
-    async def slash_verify(self, interaction: discord.Interaction, token: str):
-        await interaction.response.defer(ephemeral=True)
-		
-		# Allow usage in the verification channel or any thread inside it
-        if not (
-            interaction.channel.id == self.channel_id or
-            (isinstance(interaction.channel, discord.Thread) and 
-             interaction.channel.parent_id == self.channel_id)
-        ):
-            # Debug print (you can remove after testing)
-            print(f"[DEBUG] Blocked command: Channel={interaction.channel.id}, Parent={getattr(interaction.channel, 'parent_id', None)}, Expected={self.channel_id}")
-            return await interaction.followup.send(
-                f"Please use this command in the verification channel (<#{self.channel_id}>) or one of its threads.",
-                ephemeral=True
-            )
-                  
+			else:
+				await ctx.send(f"Invalid email submitted, {ctx.author.mention}! Please submit an email in the format "
+							   f"`{self.bot_key}email {self.sample_username}@{self.verify_domain}` to verify your email.")
 
-        if self.verify_attempts.get(interaction.user.id, 0) >= 5:
-            await interaction.followup.send("Too many invalid attempts. Contact a moderator.", ephemeral=True)
-            notify = interaction.guild.get_channel(self.notify_id)
-            await notify.send(f"⚠️ {interaction.user.mention} exceeded /verify limit.")
-            return
+	@commands.command(name="verify", aliases=["token", "Verify", "Token"])
+	@commands.guild_only()
+	async def _verify(self, ctx, arg):
+		"""
+		Verifies a user with a token that was previously emailed.
+		For use after the 'email' command.
+		Parameters
+		------------
+		token: int [Required]
+			The token that was sent to the user via email.
+		"""
+		if ctx.channel.id == self.channel_id:
+			print(f'Verifying user {ctx.author.name}, token {arg}')
+			await ctx.message.delete()
 
-        email = self.email_list.get(interaction.user.id)
-        if not email:
-            return await interaction.followup.send(
-                "No email found. Please run `/email` first.", ephemeral=True
-            )
+			# Stop user after too many invalid verification attempts.
+			try:
+				if self.verify_attempts[ctx.author.id] >= 5:
+					await ctx.send(
+						f"{ctx.author.mention}, you have exceeded the maximum number of command uses. Please contact a "
+						f"moderator for assistance with verifying if this is in error. Thanks!")
+					sendIn = ctx.guild.get_channel(self.notify_id)
+					await sendIn.send(
+						f"Alert! User {ctx.author.mention} has exceeded the amount of `!verify` command uses.")
+					return
+			except:
+				print("")
 
-        if await self.check_emails_file(interaction, email):
-            return
+			# Checks the used emails file to see if an email has already been used. (Repeated to prevent multiple uses of the same email)
+			if await self.check_emails_file(ctx, self.email_list[ctx.author.id]):
+				return  # message has already been printed, so just exit
 
-        if self.token_list.get(interaction.user.id) == token:
-            # Assign role
-            role = discord.utils.get(interaction.guild.roles, name=self.role)
-            if not role:
-                role = discord.utils.find(lambda r: str(r.id) == str(self.role), interaction.guild.roles)
-            await interaction.user.add_roles(role)
-            lock_role = discord.utils.get(interaction.guild.roles, id=self.lock_role_id)
-            if lock_role and lock_role in interaction.user.roles:
-                await interaction.user.remove_roles(lock_role)
-                print(f"🔓 Removed unverified role from {interaction.user.display_name}")
+			# Do the actual verification.
+			if self.token_list:
+				if self.token_list[ctx.author.id] == arg:
+					role = discord.utils.get(ctx.guild.roles, name=self.role)
+					if not role:
+						role = discord.utils.find(lambda r: str(r.id) == str(self.role), ctx.guild.roles)
+					await ctx.author.add_roles(role)
 
-            # Record locally
-            with open(self.used_emails, "a") as f:
-                hashed = self.bot.hashing.hash(email)
-                display_name = (
-                    f"{interaction.user.name}#{interaction.user.discriminator}"
-                    if interaction.user.discriminator != "0"
-                    else interaction.user.name
-                )
-                f.write(f"{interaction.user.id}:{display_name}:{hashed}\n")
+					with open(self.used_emails, 'a') as file:  # Writes used emails to file for verification
+						hashed = self.bot.hashing.hash(self.email_list[ctx.author.id])
+						file.write(f"{hashed}\n")
+						file.close()
 
-            # Google Sheet logging
-            if self.sheet:
-                try:
-                    display_name = (
-                        f"{interaction.user.name}#{interaction.user.discriminator}"
-                        if interaction.user.discriminator != "0"
-                        else interaction.user.name
-                    )
-                    try:
-                        timestamp = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d %H:%M:%S")
-                    except Exception:
-                        is_dst = time.localtime().tm_isdst
-                        offset = -4 if is_dst else -5
-                        eastern = timezone(timedelta(hours=offset))
-                        timestamp = datetime.now(eastern).strftime("%Y-%m-%d %H:%M:%S")
+					self.token_list.pop(ctx.author.id)  # Remove the token from the active list.
+					await ctx.send(f"{ctx.author.mention}, you've been verified!")
+				else:
+					await ctx.send(f"Invalid token submitted, {ctx.author.mention}! Please submit the 4-digit token send to your email to verify.")
+					if self.verify_attempts:
+						if ctx.author.id in self.verify_attempts:
+							self.verify_attempts[ctx.author.id] += 1
+						else:
+							self.verify_attempts[ctx.author.id] = 1
+					else:
+						self.verify_attempts[ctx.author.id] = 1
 
-                    self.sheet.append_row([
-                        str(interaction.user.id),
-                        display_name,
-                        email,
-                        timestamp
-                    ])
-                    print(f"Logged verification for {display_name} to Google Sheet.")
-                except Exception as e:
-                    print(f"[WARN] Could not log to Google Sheet: {e}")
+			else:
+				print("Array does not exist yet! Verify will return nothing!")
 
-            self.token_list.pop(interaction.user.id, None)
-            try:
-                thread = interaction.channel
-                if isinstance(thread, discord.Thread):
-                    await thread.delete(reason="User verified successfully")
-                    print(f"🗑️ Deleted verification thread for {interaction.user.display_name}")
-            except Exception as e:
-                print(f"[WARN] Could not delete verification thread: {e}")
-            # Tell the user first (while the thread still exists)   
-            try: 
-                await interaction.followup.send("✅ You have been verified!", ephemeral=True)
-            except Exception as e:
-                print(f"[WARN] Could not send ephemeral confirmation: {e}")
+	@commands.command(name="mod_verify", aliases=["manual_verify", "modverify", "manualverify", "addemail", "verifyadd"])
+	@commands.guild_only()
+	@commands.has_permissions(manage_messages=True)
+	async def _manual_verify(self, ctx, email: str, userid: int):
+		"""Manually add a user's email to the verified emails list without going through the actual verification process.
+		Useful if the main verification process is failing for other reasons, but you still want to blacklist the email from future use.
+		Parameters
+		-----------
+		email: string [Required]
+			The email to add to the used emails list.
+		"""
+		print(f"Manually adding {email} to the used emails list for user {userid}.")
 
-            # Then delete the verification thread (if this interaction happened inside one)
-            try: 
-                thread = interaction.channel
-                if isinstance(thread, discord.Thread):
-                    await thread.delete(reason="User verified successfully")
-                    print(f"🗑️ Deleted verification thread for {interaction.user.display_name}")
-            except Exception as e:
-                print(f"[WARN] Could not delete verification thread: {e}")
+		# Check if the email's already in the file.
+		try:
+			with open(self.used_emails, 'r') as file:  # Checks the used emails file to see if the email has been used.
+				if any(self.bot.hashing.check_hash(str(email.lower()), str(line).strip('\n')) for line in file):
+					print(f"{email} already present in the emails list!")
+					await ctx.send(f"{ctx.author.mention}, the email {email} is already in the used emails list.")
+					return
+		except FileNotFoundError:
+			print("Used emails file hasn't been created yet, continuing...")
 
-            # Log to admin channel
+		user = await self.bot.fetch_user(userid)
+		if user is not None:
+			print(f"User with id {userid} found")
+			role = discord.utils.get(ctx.guild.roles, name=self.role)
+			if not role:
+				role = discord.utils.find(lambda r: str(r.id) == str(self.role), ctx.guild.roles)
+			await user.add_roles(role)  # This *should* work according to stackoverflow. I sure hope it does.
 
-            try: 
-                notify = interaction.guild.get_channel(self.notify_id)
-                if not notify:
-                    notify = await self.bot.fetch_channel(self.notify_id)  # fallback if not cached
-                await notify.send(
-                    f"✅ **Verification complete:** {interaction.user.mention} "
-                    f"verified with `{email}`"
-                )
-                print(f"📢 Sent verification log for {interaction.user.display_name}")
-            except Exception as e:
-                print(f"[WARN] Could not send verification log: {e}")
+			with open(self.used_emails, 'a') as file:  # Writes used emails to file for verification
+				hashed = self.bot.hashing.hash(self.email_list[ctx.author.id])
+				file.write(f"{hashed}\n")
+				file.close()
+			print(f"Manually verified user {userid} with email {email}")
+			await ctx.send(f"{ctx.author.mention}, the user {user.mention} has been manually verified with the email {email}.")
+		else:  # if user isn't found
+			print(f"User with id {userid} not found")
+			await ctx.send(f"{ctx.author.mention}, the user with id {userid} was not found.")
 
-        else:
-            self.verify_attempts[interaction.user.id] = self.verify_attempts.get(interaction.user.id, 0) + 1
-            await interaction.followup.send("Invalid token. Please try again.", ephemeral=True)
+	@commands.command(name="active_tokens", aliases=["verify_in_progress", "in_progress", "activetokens", "verifyinprogress", "inprogress"])
+	@commands.guild_only()
+	async def _active_tokens(self, ctx):
+		"""
+		Get the active tokens list and print it - dev command.
+		:param ctx: Discord context.
+		:return: Nothing
+		"""
+		print(f"Printing active tokens.")
+		friendly_token_list = {}
+		for key in self.token_list:
+			friendly_token_list[f"<@{key}>"] = self.token_list[key]
+		sendIn = ctx.guild.get_channel(ctx.channel.id)
+		await sendIn.send(f"Active verification tokens: \n{friendly_token_list}")
 
-
-    # ----------------------------------------------------------------------
-    # /revoke (multi-admin + file + sheet sync)
-    # ----------------------------------------------------------------------
-    @app_commands.command(name="revoke", description="Admin only — revoke a user's verification globally.")
-    @app_commands.describe(user="The user to revoke (mention or ID).")
-    async def slash_revoke(self, interaction: discord.Interaction, user: discord.User):
-        # Permission check
-        if interaction.user.id not in self.admin_ids:
-            return await interaction.response.send_message(
-                "🚫 You do not have permission to run this command.", ephemeral=True
-            )
-
-        # Local file cleanup
-        try:
-            if os.path.exists(self.used_emails):
-                with open(self.used_emails, "r") as f:
-                    lines = f.readlines()
-
-                new_lines = []
-                removed = False
-                for line in lines:
-                    if not line.strip():
-                        continue
-                    parts = line.strip().split(":")
-                    if parts and parts[0] == str(user.id):
-                        removed = True
-                        continue
-                    new_lines.append(line)
-
-                with open(self.used_emails, "w") as f:
-                    f.writelines(new_lines)
-
-                if removed:
-                    print(f"Removed {user.name} ({user.id}) from used_emails.txt")
-                else:
-                    print(f"No entry found for {user.name} in used_emails.txt")
-            else:
-                print("used_emails.txt not found — skipping local cleanup.")
-        except Exception as e:
-            print(f"[WARN] Failed to update used_emails.txt: {e}")
-
-        # Google Sheet cleanup
-        if not self.sheet:
-            return await interaction.response.send_message("❌ Google Sheet not available.", ephemeral=True)
-
-        try:
-            all_records = self.sheet.get_all_values()
-            if not all_records or len(all_records) < 2:
-                return await interaction.response.send_message("⚠️ No records found in sheet.", ephemeral=True)
-
-            header = all_records[0]
-            id_col = header.index("Discord ID") if "Discord ID" in header else 0
-
-            row_to_delete = None
-            for i, row in enumerate(all_records[1:], start=2):
-                if str(row[id_col]) == str(user.id):
-                    row_to_delete = i
-                    break
-
-            if not row_to_delete:
-                return await interaction.response.send_message("⚠️ User not found in Google Sheet.", ephemeral=True)
-
-            self.sheet.delete_rows(row_to_delete)
-            print(f"Removed {user.name} ({user.id}) from Google Sheet.")
-        except Exception as e:
-            print(f"[WARN] Failed to remove from Google Sheet: {e}")
-            return await interaction.response.send_message(f"❌ Error updating Google Sheet: {e}", ephemeral=True)
-
-        # Role cleanup
-        try:
-            member = interaction.guild.get_member(user.id)
-            if member:
-                role = discord.utils.get(interaction.guild.roles, name=self.role)
-                if role and role in member.roles:
-                    await member.remove_roles(role)
-                    print(f"Removed verified role from {member.display_name}")
-        except Exception as e:
-            print(f"[WARN] Could not remove role: {e}")
-
-        # Confirmation
-        await interaction.response.send_message(
-            f"✅ Revoked verification for {user.mention}.\n"
-            f"Removed from both the Google Sheet and local file.",
-            ephemeral=True
-        )
-
-        # Log to admin channel
-        notify = interaction.guild.get_channel(self.notify_id)
-        if notify:
-            await notify.send(f"🗑️ **Verification revoked:** {user.mention} by {interaction.user.mention}")
-
-    # ----------------------------------------------------------------------
-    # Auto-verify returning members OR assign verification lock
-    # ----------------------------------------------------------------------
-    @commands.Cog.listener()
-    async def on_member_join(self, member: discord.Member):
-        try:
-            if member.bot:
-                return
-
-            guild = member.guild
-            verify_channel = guild.get_channel(self.channel_id)
-
-            # Assign the verification lock role first
-            lock_role = guild.get_role(self.lock_role_id)
-            if lock_role and lock_role not in member.roles:
-                await member.add_roles(lock_role)
-                print(f"🔒 Assigned verification lock role to {member.display_name}")
-
-            # Check if user already verified in file or sheet (for auto-reverify)
-            verified = False
-            if os.path.exists(self.used_emails):
-                with open(self.used_emails, "r") as f:
-                    for line in f:
-                        if line.strip().startswith(str(member.id) + ":"):
-                            verified = True
-                            break
-
-            if not verified and self.sheet:
-                try:
-                    all_records = self.sheet.get_all_values()
-                    if any(str(row[0]) == str(member.id) for row in all_records[1:]):
-                        verified = True
-                except Exception as e:
-                    print(f"[WARN] Google Sheet check failed on rejoin: {e}")
-
-            # Auto-reverify returning members
-            if verified:
-                role = discord.utils.get(member.guild.roles, name=self.role)
-                if not role:
-                    role = discord.utils.find(lambda r: str(r.id) == str(self.role), member.guild.roles)
-                if role:
-                    await member.add_roles(role)
-                    print(f"✅ Auto-reverified returning member {member.display_name}")
-                    notify = guild.get_channel(self.notify_id)
-                    if notify:
-                        await notify.send(f"♻️ **Auto-reverified:** {member.mention} (previously verified)")
-                return
-
-            # Create private verification thread
-            if verify_channel:
-                try:
-                    thread = await verify_channel.create_thread(
-                        name=f"verify-{member.display_name}",
-                        type=discord.ChannelType.private_thread,
-                        reason="Private verification thread for new member"
-                    )
-                    await thread.add_user(member)
-                    await thread.send(
-                        f"👋 Hi {member.mention}, welcome to the server!\n\n"
-                        f"To gain full access:\n"
-                        f"1️⃣ Set your nickname to your **real name (First Last)**.\n"
-                        f"2️⃣ Use `/email yourNID@ucf.edu` in this thread to get a verification token.\n"
-                        f"3️⃣ Use `/verify ####` here once you receive the email.\n\n"
-                        f"⚠️ Only you and the bot can see this thread."
-                    )
-                    print(f"🧵 Created private verification thread for {member.display_name}")
-                except Exception as e:
-                    print(f"[WARN] Could not create private thread for {member.display_name}: {e}")
-                    if verify_channel:
-                        await verify_channel.send(
-                            f"{member.mention}, please verify your UCF email using `/email yourNID@ucf.edu`."
-                        )
-        except Exception as e:
-            print(f"[WARN] on_member_join setup failed: {e}")
-
-    # ----------------------------------------------------------------------
-    # UTIL
-    # ----------------------------------------------------------------------
-    async def check_emails_file(self, interaction: discord.Interaction, email: str):
-        try:
-            with open(self.used_emails, "r") as f:
-                for line in f:
-                    parts = line.strip().split(":")
-                    hashed = parts[-1]
-                    if self.bot.hashing.check_hash(email.lower(), hashed):
-                        if self.ticket_loaded:
-                            ticket_channel = interaction.guild.get_channel(self.ticket_id)
-                            msg = (
-                                f"That email has already been used! If you believe this is an error, "
-                                f"please open a ticket in {ticket_channel.mention}."
-                            )
-                        else:
-                            admin = await self.bot.fetch_user(self.admin_id)
-                            msg = f"That email has already been used! Contact {admin.mention} for help."
-                        await interaction.followup.send(msg, ephemeral=True)
-                        return True
-            return False
-        except FileNotFoundError:
-            return False
+	async def check_emails_file(self, ctx, arg):
+		"""
+		This is pulled out of the email and verify function because it was duplicated code in both - having it in one
+		place should make it easier to manage in the future.
+		:param ctx: Discord context.
+		:param arg: Argument to check against.
+		:return: True if email matched, False otherwise.
+		"""
+		try:
+			with open(self.used_emails, 'r') as file:
+				if any(self.bot.hashing.check_hash(str(arg.lower()), str(line).strip('\n')) for line in file):
+					if self.ticket_loaded:
+						ticket_channel = ctx.guild.get_channel(self.ticket_id)
+						await ctx.send(
+							f"Error, that email has already been used {ctx.author.mention}! If you believe this is an "
+							f"error or are trying to re-verify, please create a ticket in {ticket_channel.mention}. "
+							f"With it, include your {self.sample_username} and a screenshot of the 4-digit code "
+							f"from your email from when you first verified. Thank you!")
+					else:
+						admin = await self.bot.fetch_user(self.admin_id)
+						await ctx.send(
+							f"Error, that email has already been used {ctx.author.mention}! If you believe this is an "
+							f"error or are trying to re-verify, please contact {admin.mention} in this channel or through "
+							f"direct message. Thank you!")
+					file.close()
+					return True
+				file.close()
+				return False
+		except FileNotFoundError:
+			print("Used emails file hasn't been created yet, continuing...")
 
 
-# ----------------------------------------------------------------------
-# SYNC FIX
-# ----------------------------------------------------------------------
-async def setup(bot):
-    cog = Verification(bot)
-    await bot.add_cog(cog)
-    try:
-        guild = discord.Object(id=cog.guild_id)
-        await bot.tree.sync(guild=guild)
-        print(f"✅ Synced slash commands instantly for guild ID {cog.guild_id}")
-        print("Loaded slash commands:", [c.name for c in bot.tree.get_commands(guild=guild)])
-    except Exception as e:
-        print(f"[WARN] Slash command sync failed: {e}")
+def setup(bot):
+	bot.add_cog(Verification(bot))
