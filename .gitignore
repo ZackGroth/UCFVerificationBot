@@ -147,3 +147,10 @@ updater.py
 !commands.json
 !demo_config.toml
 /verificationbot.service
+
+# --- local secrets & runtime data ---
+# Reinforce ignoring sensitive project data explicitly
+.env
+data/used_emails.txt
+data/warn_emails.txt
+venv/
