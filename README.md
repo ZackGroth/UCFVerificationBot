@@ -1,51 +1,46 @@
-UCFVerificationBot
+# UCFVerificationBot
 
-A Discord verification bot customized for University of Central Florida (UCF) communities.
+A Discord verification bot customized for **University of Central Florida (UCF)** communities.  
 Users verify their membership using a UCF email address and are automatically granted access to the server upon successful verification.
 
 This bot is designed for large student servers where role-based access control and domain-restricted verification are required.
 
-How It Works
+---
 
-A user joins the Discord server and is given access to limited channels.
+## How It Works
 
-The user submits their institutional email using a bot command:
-!email example@ucf.edu
+1. A user joins the Discord server and is given access to limited channels.
+2. The user submits their institutional email using a bot command:	!email example@ucf.edu
+3. The bot sends a short verification code to the provided email address.
+4. The user submits the code in Discord:	!verify 1234
+5. If the code is valid, the bot assigns a configured role granting full server access.
 
-The bot sends a short verification code to the provided email address.
+---
 
-The user submits the code in Discord:
-!verify 1234
+## Features
 
-If the code is valid, the bot assigns a configured role granting full server access.
+- Domain-restricted email verification  
+- Configurable verified role  
+- Modular command structure  
+- Docker and non-Docker deployment support  
+- Admin and moderation utilities  
+- Optional manual verification for moderators  
 
-Features
+---
 
-Domain-restricted email verification
+## Setup
 
-Configurable verified role
+### Requirements
 
-Modular command structure
+- Python **3.7+**
+- A Discord bot token
+- Access to an SMTP email account for sending verification codes
 
-Docker and non-Docker deployment support
+---
 
-Admin and moderation utilities
+### Environment Variables
 
-Optional manual verification for moderators
-
-Setup
-
-Requirements
-
-Python 3.7+
-
-A Discord bot token
-
-Access to an SMTP email account for sending verification codes
-
-Environment Variables
-
-Create a .env file in the project root (do not commit this file) and configure the required values:
+Create a `.env` file in the project root (**do not commit this file**) and configure the required values:
 
 DISCORD_TOKEN=your_bot_token
 EMAIL_DOMAIN=ucf.edu
@@ -57,113 +52,90 @@ VERIFIED_ROLE_ID=discord_role_id
 
 Additional variables may be required depending on configuration.
 
-Run Locally (Python)
+---
 
+## Run Locally (Python)
+
+```bash
 python -m venv venv
 .\venv\Scripts\activate
 pip install -r requirements.txt
 python bot.py
 
-Docker (Recommended)
+## Docker (Recommended)
 
-Ensure Docker and Docker Compose are installed.
+Ensure **Docker** and **Docker Compose** are installed.
 
-Edit docker-compose.yml and set your environment variables.
+1. Edit `docker-compose.yml` and set your environment variables.
+2. Build and start the container:
 
-Build and start the container:
+    docker compose build  
+    docker compose up -d
 
-docker compose build
-docker compose up -d
+---
 
-Required Discord Permissions
+## Required Discord Permissions
 
 The bot requires the following permissions:
 
-Manage Server
-
-Manage Roles
-
-View Channels
-
-Send Messages
-
-Manage Messages
-
-Read Message History
-
-Add Reactions
+- Manage Server
+- Manage Roles
+- View Channels
+- Send Messages
+- Manage Messages
+- Read Message History
+- Add Reactions
 
 Ensure role hierarchy is configured correctly or verification will fail.
 
-Commands
+---
 
-Command: vhelp
-Description: Displays usage instructions
-Permission: None
+## Commands
 
-Command: email <email>
-Description: Sends verification email
-Permission: None
+| Command | Description | Permission |
+|-------|------------|------------|
+| vhelp | Displays usage instructions | None |
+| email `<email>` | Sends verification email | None |
+| verify `<code>` | Verifies user | None |
+| uptime | Shows bot uptime | None |
+| activetokens | Lists pending verifications | None |
+| prune `<n>` | Deletes recent messages | Manage Server |
+| modverify `<email>` `<user_id>` | Manual verification | Manage Server |
+| reactoradd | Adds reaction role | Manage Server |
+| reactordelete | Removes reactors | Manage Server |
+| reactorget | Lists reactors | Manage Server |
+| reactorclearall | Clears all reactors | Manage Server |
 
-Command: verify <code>
-Description: Verifies user
-Permission: None
+---
 
-Command: uptime
-Description: Shows bot uptime
-Permission: None
+## Security Notes
 
-Command: activetokens
-Description: Lists pending verifications
-Permission: None
+- **Never commit** `.env` files or credentials
+- Rotate tokens immediately if exposed
+- Limit bot permissions to only what is required
+- Audit role assignment behavior carefully
 
-Command: prune <n>
-Description: Deletes recent messages
-Permission: Manage Server
+---
 
-Command: modverify <email> <user_id>
-Description: Manual verification
-Permission: Manage Server
+## Attribution
 
-Command: reactoradd
-Description: Adds reaction role
-Permission: Manage Server
-
-Command: reactordelete
-Description: Removes reactors
-Permission: Manage Server
-
-Command: reactorget
-Description: Lists reactors
-Permission: Manage Server
-
-Command: reactorclearall
-Description: Clears all reactors
-Permission: Manage Server
-
-Security Notes
-
-Never commit .env files or credentials
-
-Rotate tokens immediately if exposed
-
-Limit bot permissions to only what is required
-
-Audit role assignment behavior carefully
-
-Attribution
-
-This project is derived from “VerificationBot”, originally developed for the UVic Engineering & Computer Science Discord community and later contributors.
+This project is derived from **VerificationBot**, originally developed for the UVic Engineering & Computer Science Discord community and later contributors.
 
 The codebase has been modified and extended for UCF-specific use cases, configuration, and deployment.
 
 Original project and contributors are credited in accordance with the license.
 
-License
+---
 
-This project is licensed under the GNU General Public License v3.0 (GPL-3.0).
-See the LICENSE file for full terms.
+## License
 
-Disclaimer
+This project is licensed under the **GNU General Public License v3.0 (GPL-3.0)**.  
+See the `LICENSE` file for full terms.
 
-This project is not affiliated with Discord or the University of Central Florida.
+---
+
+## Disclaimer
+
+This project is **not affiliated** with Discord or the University of Central Florida.
+
+
