@@ -1,177 +1,169 @@
-# VerificationBot
-![License](https://img.shields.io/github/license/jensengillett/verificationbot?color=6cc644&label=License&style=flat-square)
-![Repo Stars](https://img.shields.io/github/stars/jensengillett/verificationbot?color=6e5494&label=Stars&logo=github&logoColor=white&style=flat-square)
+UCFVerificationBot
 
-<!-- Social Shields -->
-<!-- [![Twitter](https://img.shields.io/twitter/follow/dakaosjr?color=1da1f2&label=Follow%20@dakaosjr&logo=twitter&logoColor=white&style=flat-square)](https://twitter.com/intent/follow?screen_name=dakaosjr)
-[![Twitter](https://img.shields.io/twitter/follow/miningmark48?color=1da1f2&label=Follow%20@miningmark48&logo=twitter&logoColor=white&style=flat-square)](https://twitter.com/intent/follow?screen_name=miningmark48) -->
+A Discord verification bot customized for University of Central Florida (UCF) communities.
+Users verify their membership using a UCF email address and are automatically granted access to the server upon successful verification.
 
-> A Discord verification bot that is designed for post-secondary institutions. Fully modular and configurable.
+This bot is designed for large student servers where role-based access control and domain-restricted verification are required.
 
-- [VerificationBot](#verificationbot)
-	- [About](#about)
-		- [Background](#background)
-		- [How Does it Work?](#how-does-it-work)
-- [Setup](#setup)
-	- [Docker](#docker)
-	- [Python Virtual Environment](#python-virtual-environment)
-- [Commands](#commands)
-	- [Command Notes](#command-notes)
-		- [Email](#email)
-- [Contributors](#contributors)
-- [Support Development](#support-development)
-- [Notice](#notice)
-	- [Legal](#legal)
-		- [License](#license)
-		- [Disclaimer](#disclaimer)
+How It Works
 
----
-## About
-### Background
-VerificationBot started as a small project for the UVic Engineering and Computer Science Discord server due to a growing server population. We wanted to make an automated system to prevent non-UVic students from accessing the remainder of the Discord server. With this goal in mind, and with the help of [MiningMark48](https://github.com/miningmark48), the initial draft of the bot was created.
+A user joins the Discord server and is given access to limited channels.
 
-Since its initial creation, the bot has been an excellent method for keeping non-UVic students from accessing our Discord server. With our goal accomplished, other servers began to take notice. Thanks to the Fall 2020 semester being fully online due to the pandemic, many more Discord servers were being created, some with thousands of members. With these numerous servers, a lack of a verification system was becoming a concern. 
+The user submits their institutional email using a bot command:
+!email example@ucf.edu
 
-From this point, the bot was rewritten; going from a single-file bot to a multiple-file, fully modularized machine. What once wasn't possible, the bot was now able to be controlled better than before, thanks to the use of a [config](./docker-compose.yml).
+The bot sends a short verification code to the provided email address.
 
-### How Does it Work?
-When users join a Discord server, they are given access to limited channels, one of which allows them to send in their university or institutional email with the help of a bot command.
+The user submits the code in Discord:
+!verify 1234
 
-`!email example@example.com`
+If the code is valid, the bot assigns a configured role granting full server access.
 
-Once they run the command and if the email is valid (matches the set domain), they will receive an email containing a 4-digit code. The user then takes this code back to the Discord server and runs a command with this code.
+Features
 
-`!verify 1234`
+Domain-restricted email verification
 
-If the code is valid, they will be given a role, allowing access to the rest of the server (or however configured).
+Configurable verified role
 
----
+Modular command structure
 
-# Setup
-## Docker
-**Recommended Method**
-1. To start, verify Docker is installed. If it is not or you don't know, go [here](https://docs.docker.com/get-docker/) to download Docker. Docker-compose is now included with Docker.
+Docker and non-Docker deployment support
 
-2. Download the source code, extract to a desired directory and browse to the `docker_compose.yml`. Open it with notepad or your text editor of choice and add your environmental variables (token, key, domain, etc.).
+Admin and moderation utilities
 
-3. A bot token needs to be created to run this bot. You can find the Discord Developers Portal [here](https://discord.com/developers/applications). If you need help making a bot account, [Google](https://letmegooglethat.com/?q=how+to+make+a+discord+bot) is your friend.
+Optional manual verification for moderators
 
-	When adding your bot to your server, **make sure the bot has the necessary permissions or things will almost certainly break!**
+Setup
 
-	Permissions **required**:
-	- Manage Server
-	- Manage Roles
-	- View Channels
-	- Send Messages
-	- Manage Messages
-	- Read Message History
-	- Add Reactions
+Requirements
 
-4. Open a command prompt or terminal, move to the directory containing the downloaded `docker-compose.yml` file, and run the following commands:
-	```bash
- 	docker compose build
-	docker compose up -d
-	```
+Python 3.7+
 
-5. Congratulations! Assuming your variables in the `docker-compose.yml` file are correct and everything is installed correctly you should have a running Discord bot!
+A Discord bot token
 
-## Python Virtual Environment
-1. To start, download this repo. Also, ensure you have Python 3.7+ installed.
+Access to an SMTP email account for sending verification codes
 
-2. Create a virtual environment with the following command:
-	```bash
-	python -m venv venv
-	```
+Environment Variables
 
-3. Activate the virtual environment with one of the following commands:
-	```bash
-	.\venv\Scripts\activate
-	```
-	or
-	```bash
-	activate venv
-	```
+Create a .env file in the project root (do not commit this file) and configure the required values:
 
-4. Install dependencies found in `requirements.txt`:
-	```bash
-	pip install -r requirements.txt
-	```
+DISCORD_TOKEN=your_bot_token
+EMAIL_DOMAIN=ucf.edu
+SMTP_HOST=your.smtp.server
+SMTP_PORT=587
+SMTP_USER=your_email@domain
+SMTP_PASS=your_email_password
+VERIFIED_ROLE_ID=discord_role_id
 
-5. Create a `.env` file in the same directory as the downloaded repo. In this file, set your environmental variables as specified in `docker-compose.yml`.
+Additional variables may be required depending on configuration.
 
-6. Finally, run `bot.py`:
-   ```bash
-   python bot.py
-   ```
+Run Locally (Python)
 
-7. Congratulations! Assuming all went well and everything is installed correctly you should have a running Discord bot!
+python -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements.txt
+python bot.py
 
----
+Docker (Recommended)
 
-# Commands
-Here is a full list of the commands the bot offers:
+Ensure Docker and Docker Compose are installed.
 
-| Command         | Description                                                                                                 | Permissions Required | Usage*                                                     |
-|-----------------|-------------------------------------------------------------------------------------------------------------|----------------------|------------------------------------------------------------|
-| vhelp           | Displays an informative message about how to use the email and verify commands.                             | None                 | vhelp                                                      |
-| email           | Sends a verification email to a provided email account.                                                     | None                 | email <email: str>                                         |
-| verify          | Uses the token sent to the email account to verify the user.                                                | None                 | verify <token: int>                                        |
-| support         | Replies with links to financially support the authors and contributors of this bot, and a link to this repo | None                 | support                                                    |
-| uptime          | Tells you how long this instance of the bot has been running for.                                           | None                 | uptime                                                     |
-| activetokens    | Notifies the 'notification channel' of which users have incomplete verifications in progress.               | None                 | activetokens                                               |
-| prune           | Prunes the most recent *n* amount of messages in a channel.                                                 | Manage Server        | prune <amount: int>                                        |
-| modverify       | Allows you to manually verify a user, bypassing the main verification system.                               | Manage Server        | modverify <email: str> <userid: int>                       |
-| reactoradd      | Adds a reactor to a message                                                                                 | Manage Server        | reactoradd <message_id: str> <role_id: str> <emote: emote> |
-| reactordelete   | Removes all reactors from a message.                                                                        | Manage Server        | reactordelete <message_id: str>                            |
-| reactorget      | Get all reactors in the server                                                                              | Manage Server        | reactorget                                                 |
-| reactorclearall | Removes all reactors in the server.                                                                         | Manage Server        | reactorclearall                                            |
+Edit docker-compose.yml and set your environment variables.
 
+Build and start the container:
 
-\* `<>` = required, `[]` = optional
+docker compose build
+docker compose up -d
 
-## Command Notes
-### Email
-There are a variety of extra handlers to help aid people that can't quite follow the instructions properly. The email command will accept the following variations:
-- (!) email [email@email.com]  - extra space before 'email'
-- (!)[email@email.com]  - no 'email'
-- (!)email[email@email.com]  - missing space between 'email' and their email
-- [email@email.com]  - missing alias and 'email'
-- email [email@email.com]  - missing alias
+Required Discord Permissions
 
-These are primarily there to assist people new to Discord or who can't follow instructions. The *vhelp* command encourages use of the proper form, \<alias>email [email@email.com].
+The bot requires the following permissions:
 
----
+Manage Server
 
-# Contributors
-Notable contributors are listed below:
+Manage Roles
 
-| Contributor                                     | Contribution                                                                                                                                                                                                                                                                                                  |
-|-------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| [MiningMark48](https://github.com/MiningMark48) | Wrote the initial draft of the bot, reactor module, and data handlers to integrate to [sqlalchemy](https://pypi.org/project/SQLAlchemy/), rewrote the bot to use [Discord.py *Cogs*](https://discordpy.readthedocs.io/en/latest/ext/commands/cogs.html), and implemented miscellaneous commands and features. |
-| [aabuelazm](https://github.com/aabuelazm)       | Wrote the [Dockerfile](/Dockerfile) and implemented environmental variables to `bot.py` for easy Docker container deployment.                                                                                                                                                                                 |
-| [MNThomson](https://github.com/MNThomson)       | Fixed vulnerabilities                                                                                                                                                                                                                                                                                         |
+View Channels
 
----
+Send Messages
 
-# Support Development
-If you use this bot on your server, feel free to credit me by linking to this repository. 
+Manage Messages
 
-If you want to support me financially, [buy me a cup of coffee](https://ko-fi.com/jensengillett)! 
+Read Message History
 
-You can also support me through [PayPal](https://paypal.me/jensengillett) directly.
+Add Reactions
 
-# Notice
-## Legal
-### License
-The code for this repo is licensed under the GPL3. More information can be found in the [LICENSE file](/LICENSE) in this repo.
+Ensure role hierarchy is configured correctly or verification will fail.
 
-### Disclaimer
-This project is not affiliated with [Discord](https://discord.com/) or [discord.py](https://github.com/Rapptz/discord.py).
+Commands
 
-**Future Updates**
+Command: vhelp
+Description: Displays usage instructions
+Permission: None
 
-Although this repo is being given support and updates, it is limited. If [Discord](https://discord.com/) or [discord.py](https://github.com/Rapptz/discord.py) make any sudden changes to their API, do not expect an immediate update. 
+Command: email <email>
+Description: Sends verification email
+Permission: None
 
-Major security patches and API changes may result in an update, or may result in support being dropped. If support is dropped indefinitely, this file will be updated to note that the bot is now deprecated and the repo will be archived and set to read-only. At the moment, this is unlikely and not in the forseeable future.
+Command: verify <code>
+Description: Verifies user
+Permission: None
 
----
+Command: uptime
+Description: Shows bot uptime
+Permission: None
+
+Command: activetokens
+Description: Lists pending verifications
+Permission: None
+
+Command: prune <n>
+Description: Deletes recent messages
+Permission: Manage Server
+
+Command: modverify <email> <user_id>
+Description: Manual verification
+Permission: Manage Server
+
+Command: reactoradd
+Description: Adds reaction role
+Permission: Manage Server
+
+Command: reactordelete
+Description: Removes reactors
+Permission: Manage Server
+
+Command: reactorget
+Description: Lists reactors
+Permission: Manage Server
+
+Command: reactorclearall
+Description: Clears all reactors
+Permission: Manage Server
+
+Security Notes
+
+Never commit .env files or credentials
+
+Rotate tokens immediately if exposed
+
+Limit bot permissions to only what is required
+
+Audit role assignment behavior carefully
+
+Attribution
+
+This project is derived from “VerificationBot”, originally developed for the UVic Engineering & Computer Science Discord community and later contributors.
+
+The codebase has been modified and extended for UCF-specific use cases, configuration, and deployment.
+
+Original project and contributors are credited in accordance with the license.
+
+License
+
+This project is licensed under the GNU General Public License v3.0 (GPL-3.0).
+See the LICENSE file for full terms.
+
+Disclaimer
+
+This project is not affiliated with Discord or the University of Central Florida.
