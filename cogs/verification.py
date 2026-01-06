@@ -347,5 +347,5 @@ class Verification(commands.Cog):
 			print("Used emails file hasn't been created yet, continuing...")
 
 
-def setup(bot):
-	bot.add_cog(Verification(bot))
+async def setup(bot):
+	await bot.add_cog(Verification(bot))

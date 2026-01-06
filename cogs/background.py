@@ -59,5 +59,5 @@ class Background(commands.Cog):
 				#return await invoke_cmd(vhelp_cmd, content)  # invoke the vhelp command for our poor users
 
 
-def setup(bot):
-	bot.add_cog(Background(bot))
+async def setup(bot):
+	await bot.add_cog(Background(bot))

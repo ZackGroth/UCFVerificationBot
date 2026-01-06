@@ -133,5 +133,5 @@ class Reactor(commands.Cog):
 						await user.send(f"**Role Removed**\nYou have left the *{role.name}* Team.")
 
 
-def setup(bot):
-	bot.add_cog(Reactor(bot))
+async def setup(bot):
+	await bot.add_cog(Reactor(bot))

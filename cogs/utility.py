@@ -35,5 +35,5 @@ class Utility(commands.Cog):
 		await ctx.send(f"This bot has been running for {uptime}.")
 
 
-def setup(bot):
-	bot.add_cog(Utility(bot))
+async def setup(bot):
+	await bot.add_cog(Utility(bot))
