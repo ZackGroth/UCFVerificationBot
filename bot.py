@@ -1,118 +1,68 @@
 import os
-import os.path as osp
-import random
-import time
-import asyncio
-
 import discord
 from discord.ext import commands
+from dotenv import load_dotenv
 
-from util.data.hashing import Hashing
+# ------------------------------------------------------------
+# Load environment variables
+# ------------------------------------------------------------
+load_dotenv()
 
-print("Starting...")
+TOKEN = os.getenv("DISCORD_TOKEN")
+if not TOKEN:
+    raise RuntimeError("DISCORD_TOKEN is not set in the environment.")
 
-# --- Load .env if present ---
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-    print("Loaded .env")
-except Exception as e:
-    print(f"[WARN] dotenv not loaded (this is OK if you set env vars another way): {e}")
-
-current_dir = osp.dirname(__file__)
-data_path = "data"
-
-extensions = ["background", "errors", "misc", "reactor", "utility", "verification"]
-
+# ------------------------------------------------------------
+# Intents
+# ------------------------------------------------------------
 intents = discord.Intents.default()
+intents.members = True          # REQUIRED for on_member_join
 intents.guilds = True
-intents.members = True
 intents.messages = True
-intents.reactions = True
 
-do_run = True
-
-bot_token = None
-used_emails = None
-bot_key = None
-hash_key = None
-
-try:
-    print("Loading config...")
-
-    bot_token = os.environ["token"]
-    bot_key = os.environ["key"]
-    used_emails = os.environ["used_emails"]
-    hash_key = os.environ["hash_key"]
-
-    do_run = True
-except KeyError as e:
-    print(f"Config error.\n\tKey Not Loaded: {e}")
-    do_run = False
-
-# Seed RNG
-random.seed(int(time.time()))
-
-# Only build paths if config loaded successfully
-if do_run:
-    used_emails = osp.join(current_dir, data_path, used_emails)
-
-
-def prefix(bot, message):
-    pfx = bot_key
-    if str(message.content).startswith(f"{pfx} "):
-        pfx = f"{pfx} "
-    return pfx
-
-
-bot = commands.Bot(command_prefix=prefix, intents=intents)
-
-# Only set hashing if config loaded
-if do_run:
-    hashing = Hashing(hash_key)
-    setattr(bot, "current_dir", current_dir)
-    setattr(bot, "data_path", data_path)
-    setattr(bot, "hashing", hashing)
-
-bot.remove_command("help")
-
-
-@bot.event
-async def on_ready():
-    await bot.change_presence(
-        activity=discord.Activity(
-            name=f"{bot_key}vhelp for verification help",
-            type=discord.ActivityType.watching,
+# ------------------------------------------------------------
+# Bot class
+# ------------------------------------------------------------
+class VerificationBot(commands.Bot):
+    def __init__(self):
+        super().__init__(
+            command_prefix="!",
+            intents=intents,
+            help_command=None
         )
-    )
-    print(f"We have logged in as {bot.user}")
 
+        # Paths used by verification.py
+        self.current_dir = os.path.dirname(os.path.abspath(__file__))
+        self.data_path = "data"
 
-@bot.event
-async def on_message(message):
-    if message.author == bot.user:
-        return
-    await bot.process_commands(message)
+        # Hashing helper (required by verification.py)
+        from util.hashing import Hashing
+        self.hashing = Hashing()
 
+    async def setup_hook(self):
+        """
+        Called once on startup.
+        Loads cogs and syncs commands.
+        """
+        print("🔧 Loading cogs...")
 
-async def main():
-    count = 0
-    for extension in extensions:
-        try:
-            await bot.load_extension(f"cogs.{extension}")
-            print(f"Cog | Loaded {extension}")
-            count += 1
-        except Exception as error:
-            print(f"{extension} cannot be loaded. \n\t[{error}]")
+        await self.load_extension("cogs.verification")
 
-    print(f"Loaded {count}/{len(extensions)} cogs")
+        print("✅ Cogs loaded.")
 
-    if do_run:
-        await bot.start(bot_token)
-    else:
-        print("Startup aborted (missing config).")
+    async def on_ready(self):
+        print("====================================")
+        print(f"🤖 Logged in as: {self.user}")
+        print(f"🆔 Bot ID: {self.user.id}")
+        print(f"🌐 Connected to {len(self.guilds)} guild(s)")
+        print("====================================")
 
+# ------------------------------------------------------------
+# Run bot
+# ------------------------------------------------------------
+def main():
+    bot = VerificationBot()
+    bot.run(TOKEN)
 
 if __name__ == "__main__":
-    asyncio.run(main())
-
+    main()
